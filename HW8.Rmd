@@ -1,0 +1,134 @@
+---
+title: "ECON 487 HW8"
+author: "Tiffany Tian"
+date: "11/30/2021"
+output: html_document
+---
+
+```{r setup, message = FALSE}
+library(dplyr)
+library(plyr)
+library(doBy)
+library(tidyr)
+library(glmnet)
+library(ggplot2)
+library(randomForest)
+
+```
+
+## 4.a
+
+```{r}
+oj <- read.csv("oj.csv")
+lagged <- oj[c("store", "brand", "week",
+               "price", "logmove", "feat")]
+lagged$week <- lagged$week + 1
+oj_lagged <- merge(oj, lagged, by = c("brand", "store", "week"))
+oj_lagged %<>%
+  dplyr::rename(price = price.x, lagged_price = price.y,
+                logmove = logmove.x, lagged_logmove = logmove.y,
+                feat = feat.x, lagged_feat = feat.y) %>%
+  relocate(lagged_price, .after = price) %>%
+  relocate(lagged_logmove, .after = logmove) %>%
+  relocate(lagged_feat, .after = feat) %>%
+  select(-c(SSTRDIST, SSTRVOL, CPDIST5, CPWVOL5))
+
+lagged_dom <- oj_lagged %>% filter(brand == "dominicks")
+lagged_mm <- oj_lagged %>% filter(brand == "minute.maid")
+lagged_trop <- oj_lagged %>% filter(brand == "tropicana")
+
+# Q of Dominick's
+lagged_dom.rf <- randomForest(logmove ~ AGE60 + EDUC + ETHNIC + INCOME +
+                                HHLARGE + WORKWOM + HVAL150 + lagged_price +
+                                lagged_logmove + lagged_feat,
+                              data = lagged_dom, ntree = 100, keep.forest = TRUE)
+lagged_dom$logmove_pred = predict(lagged_dom.rf)
+lagged_dom$resid_dom_q <- lagged_dom$logmove - lagged_dom$logmove_pred
+mean(lagged_dom$resid_dom_q)
+
+# P of Dominick's
+lagged_dom.rf <- randomForest(log(price) ~ AGE60 + EDUC + ETHNIC + INCOME +
+                                HHLARGE + WORKWOM + HVAL150 + lagged_price +
+                                lagged_logmove + lagged_feat,
+                              data = lagged_dom, ntree = 100, keep.forest = TRUE)
+lagged_dom$logprice_pred = predict(lagged_dom.rf)
+lagged_dom$resid_dom_p <- log(lagged_dom$price) - lagged_dom$logprice_pred
+mean(lagged_dom$resid_dom_p)
+
+# Q of Minute Maid
+lagged_mm.rf <- randomForest(logmove ~ AGE60 + EDUC + ETHNIC + INCOME +
+                                HHLARGE + WORKWOM + HVAL150 + lagged_price +
+                                lagged_logmove + lagged_feat,
+                              data = lagged_mm, ntree = 100, keep.forest = TRUE)
+lagged_mm$logmove_pred = predict(lagged_mm.rf)
+lagged_mm$resid_mm_q <- lagged_mm$logmove - lagged_mm$logmove_pred
+mean(lagged_mm$resid_mm_q)
+
+# P of Minute Maid
+lagged_mm.rf <- randomForest(log(price) ~ AGE60 + EDUC + ETHNIC + INCOME +
+                                HHLARGE + WORKWOM + HVAL150 + lagged_price +
+                                lagged_logmove + lagged_feat,
+                              data = lagged_mm, ntree = 100, keep.forest = TRUE)
+lagged_mm$logprice_pred = predict(lagged_mm.rf)
+lagged_mm$resid_mm_p <- log(lagged_mm$price) - lagged_mm$logprice_pred
+mean(lagged_mm$resid_mm_p)
+
+# Q of Tropicana
+lagged_trop.rf <- randomForest(logmove ~ AGE60 + EDUC + ETHNIC + INCOME +
+                                HHLARGE + WORKWOM + HVAL150 + lagged_price +
+                                lagged_logmove + lagged_feat,
+                              data = lagged_trop, ntree = 100, keep.forest = TRUE)
+lagged_trop$logmove_pred = predict(lagged_trop.rf)
+lagged_trop$resid_trop_q <- lagged_trop$logmove - lagged_trop$logmove_pred
+mean(lagged_trop$resid_trop_q)
+
+# P of Tropicana
+lagged_trop.rf <- randomForest(log(price) ~ AGE60 + EDUC + ETHNIC + INCOME +
+                                HHLARGE + WORKWOM + HVAL150 + lagged_price +
+                                lagged_logmove + lagged_feat,
+                              data = lagged_trop, ntree = 100, keep.forest = TRUE)
+lagged_trop$logprice_pred = predict(lagged_trop.rf)
+lagged_trop$resid_trop_p <- log(lagged_trop$price) - lagged_trop$logprice_pred
+mean(lagged_trop$resid_trop_p)
+```
+
+## 4.b
+
+```{r, message=FALSE}
+dom <- lagged_dom[c("store", "week", "resid_dom_q")] %>%
+  left_join(lagged_dom[c("store", "week", "resid_dom_p")]) %>%
+  left_join(lagged_mm[c("store", "week", "resid_mm_p")]) %>%
+  left_join(lagged_trop[c("store", "week", "resid_trop_p")])
+  
+mm <- lagged_mm[c("store", "week", "resid_mm_q")] %>%
+  left_join(lagged_dom[c("store", "week", "resid_dom_p")]) %>%
+  left_join(lagged_mm[c("store", "week", "resid_mm_p")]) %>%
+  left_join(lagged_trop[c("store", "week", "resid_trop_p")])
+  
+trop <- lagged_trop[c("store", "week", "resid_trop_q")] %>%
+  left_join(lagged_dom[c("store", "week", "resid_dom_p")]) %>%
+  left_join(lagged_mm[c("store", "week", "resid_mm_p")]) %>%
+  left_join(lagged_trop[c("store", "week", "resid_trop_p")])
+  
+dom_reg <- glm(resid_dom_q ~ resid_dom_p + resid_mm_p + resid_trop_p, data = dom)
+mm_reg <- glm(resid_mm_q ~ resid_dom_p + resid_mm_p + resid_trop_p, data = mm)
+trop_reg <- glm(resid_trop_q ~ resid_dom_p + resid_mm_p + resid_trop_p, data = trop)
+
+rownames = c("Q Tropicana", "Q Minute Maid", "Q Dominick's")
+colnames = c("P Tropicana", "P Minute Maid", "P Dominick's")
+elasticities <- matrix(NA, 3, 3, dimnames = list(rownames, colnames))
+
+elasticities[1,1] <- coef(trop_reg)["resid_trop_p"] 
+elasticities[1,2] <- coef(trop_reg)["resid_mm_p"] 
+elasticities[1,3] <- coef(trop_reg)["resid_dom_p"] 
+elasticities[2,1] <- coef(mm_reg)["resid_trop_p"] 
+elasticities[2,2] <- coef(mm_reg)["resid_mm_p"] 
+elasticities[2,3] <- coef(mm_reg)["resid_dom_p"] 
+elasticities[3,1] <- coef(dom_reg)["resid_trop_p"] 
+elasticities[3,2] <- coef(dom_reg)["resid_mm_p"] 
+elasticities[3,3] <- coef(dom_reg)["resid_dom_p"] 
+
+elasticities
+```
+
+

@@ -1,0 +1,231 @@
+---
+title: "ECON 487 HW4"
+author: "Tiffany Tian"
+date: "10/24/2021"
+output: html_document
+---
+
+```{r setup, message=FALSE}
+library(ggplot2)
+library(plyr)
+library(dplyr)
+library(reshape2)
+
+oj <- read.csv("oj.csv")
+```
+
+### 1.a-c
+```{r, message=FALSE}
+lagged <- oj[c("store", "brand", "week", "price")]
+lagged$week <- lagged$week + 1
+oj_lagged <- merge(oj, lagged, by = c("brand", "store", "week"))
+oj_lagged %<>%
+  rename("price" = "price.x", "lagged_price" = "price.y") %>%
+  relocate(lagged_price, .after = price) %>%
+  select(-c(SSTRDIST, SSTRVOL, CPDIST5, CPWVOL5))
+
+folds <- 5
+# Randomized the entire data set
+oj_lagged <- oj_lagged[sample(nrow(oj_lagged)),]
+# Split the data set into 5 groups
+oj_lagged$order <- seq(1, nrow(oj_lagged))
+oj_lagged$group <- oj_lagged$order %% folds
+# Initialize list to store MSEs
+MSE_list <- c()
+
+for (i in 0:(folds - 1)) {
+  # Select testing set
+  oj_test <- oj_lagged[which(oj_lagged$group == i),]
+  # The rest is used as training set
+  oj_train <- anti_join(oj_lagged, oj_test)
+  model <- lm(logmove ~ log(price) + feat + brand + brand*log(price) +
+                log(lagged_price) + AGE60 + EDUC + ETHNIC + INCOME + HHLARGE +
+                WORKWOM + HVAL150 + EDUC*log(price) + HHLARGE*log(price),
+              data = oj_train)
+  oj_test$logmove_hat <- predict(model, newdata=oj_test)
+  MSE_list[i + 1] <- mean((oj_test$logmove_hat - oj_test$logmove)^2)
+}
+MSE_list
+mean(MSE_list)
+```
+
+_The cross validated MSE for each OLS model is as follow `r MSE_list`, and the mean MSE is `r mean(MSE_list)`._
+
+### 2.a
+
+```{r, message=FALSE}
+library(glmnet)
+```
+
+### 2.b & c
+```{r}
+x <- model.matrix(~ log(price) + feat + brand + brand*log(price) +
+                log(lagged_price) + AGE60 + EDUC + ETHNIC + INCOME + HHLARGE +
+                WORKWOM + HVAL150 + EDUC*log(price) + HHLARGE*log(price),
+              data = oj_lagged)
+y <- as.numeric(as.matrix(oj_lagged$logmove))
+set.seed(720)
+lasso_v1 <- glmnet(x, y, alpha=1)
+plot(lasso_v1)
+coef(lasso_v1, s=lasso_v1$lambda.min)
+cvfit <- cv.glmnet(x, y, alpha=1)
+#Results
+plot(cvfit)
+cvfit$lambda.min
+log(cvfit$lambda.min)
+coef(cvfit, s = "lambda.min")
+```
+Which are the parameters the cross validated LASSO model kicks out of the model?
+
+  _The LASSO model included all the parameters._
+  
+What is the ratio of number of features to number of observations?
+
+  _100%, since it was all being included._
+  
+How might that relate to overfitting from “sampling error”?
+
+  _This mean that this model is not overfitting._
+
+### 2.d	
+Can you look that the glmnet objects and figure out what the out of sample (e.g., test set) average MSE was with the cross validated LASSO model relative to the model in 1.c?
+
+  _It looks like the cross validated LASSO model with 18 parameters has an average MSE at around 0.0005._
+
+### 2.e
+What is the advantage of using LASSO for choosing model complexity as opposed to using your intuition as an economist?  
+i.	In what part of this process did you use your intuition as an economist? (HINT: what’s in the X matrix?)
+
+_The advantage of using LASSO is that you can clearly see data supporting which parameters to choose, instead of trying to make an educated guess as an economist. It was only in the part of deciding what parameters to put in as the model when we need to use economic intuition._
+
+### 3.a
+```{r}
+regression <- glm(logmove ~ feat + log(price) + brand + lagged_price + AGE60 + EDUC +
+                   ETHNIC + INCOME+ HHLARGE + WORKWOM + HVAL150 + log(price)*log(lagged_price),
+                 data = oj_lagged)
+summary(regression)
+```
+_i. The predicted elasticity for Dominick's when the lagged price is $1 would be 12.65._
+_I didn't interact lagged price with current period price because lagged price impact the log move this period, but not the elasticity._
+
+_ii. For Tropicana, the predicted elasticity is 13.56._
+
+_iii. For Tropicana when it's featured, the predicted elasticity is 14.41._
+
+_iv. The 95% confidence interval for Tropicana is between 13.53 and 13.59._
+
+### 3.b
+_Dominick's have the most elastic demand, it should have the lowest markup over costs because its customer are very price-sensitive and they'd want to keep the price as close to the cost as possible._
+
+
+### 4.a
+```{r} 
+oj_prices <-oj[,1:6]
+oj_wide <- dcast(oj_prices, store + week ~ brand)
+colnames(oj_wide)[3] <- "P_Dom"
+colnames(oj_wide)[4] <- "P_MM"
+colnames(oj_wide)[5] <- "P_Trop"
+oj_cross <- merge(oj, oj_wide, by=c("week","store"))
+
+trop <- glm(logmove ~ log(price) + AGE60 + EDUC + ETHNIC + INCOME + HHLARGE +
+              WORKWOM + HVAL150 + log(P_Dom) + log(P_MM) + log(P_Trop),
+            data = oj_cross %>% filter(brand == "tropicana"))
+mm <- glm(logmove ~ log(price) + AGE60 + EDUC + ETHNIC + INCOME + HHLARGE +
+            WORKWOM + HVAL150 + log(P_Dom) + log(P_MM) + log(P_Trop),
+          data = oj_cross %>% filter(brand == "minute.maid"))
+dom <- glm(logmove ~ log(price) + AGE60 + EDUC + ETHNIC + INCOME + HHLARGE +
+             WORKWOM + HVAL150 + log(P_Dom) + log(P_MM) + log(P_Trop),
+           data = oj_cross %>% filter(brand == "dominicks"))
+
+rownames = c("Q Tropicana", "Q Minute Maid", "Q Dominick's")
+colnames = c("P Tropicana", "P Minute Maid", "P Dominick's")
+elasticities <- matrix(NA, 3, 3, dimnames = list(rownames, colnames))
+
+elasticities[1,1] <- coef(trop)["log(P_Trop)"] 
+elasticities[1,2] <- coef(trop)["log(P_MM)"] 
+elasticities[1,3] <- coef(trop)["log(P_Dom)"] 
+elasticities[2,1] <- coef(mm)["log(P_Trop)"] 
+elasticities[2,2] <- coef(mm)["log(P_MM)"] 
+elasticities[2,3] <- coef(mm)["log(P_Dom)"] 
+elasticities[3,1] <- coef(dom)["log(P_Trop)"] 
+elasticities[3,2] <- coef(dom)["log(P_MM)"] 
+elasticities[3,3] <- coef(dom)["log(P_Dom)"] 
+
+elasticities
+```
+
+### 4.b
+```{r} 
+trop_feat <- glm(logmove ~ log(price) + AGE60 + EDUC + ETHNIC + INCOME + HHLARGE +
+              WORKWOM + HVAL150 + log(P_Dom) + log(P_MM) + log(P_Trop) + 
+                log(P_Dom)*feat + log(P_MM)*feat + log(P_Trop)*feat,
+                 data = oj_cross %>% filter(brand == "tropicana"))
+mm_feat <- glm(logmove ~ log(price) + AGE60 + EDUC + ETHNIC + INCOME + HHLARGE +
+            WORKWOM + HVAL150 + log(P_Dom) + log(P_MM) + log(P_Trop) + 
+                log(P_Dom)*feat + log(P_MM)*feat + log(P_Trop)*feat,
+          data = oj_cross %>% filter(brand == "minute.maid"))
+dom_feat <- glm(logmove ~ log(price) + AGE60 + EDUC + ETHNIC + INCOME + HHLARGE +
+             WORKWOM + HVAL150 + log(P_Dom) + log(P_MM) + log(P_Trop) + 
+                log(P_Dom)*feat + log(P_MM)*feat + log(P_Trop)*feat,
+           data = oj_cross %>% filter(brand == "dominicks"))
+
+elasticities_feat <- matrix(NA, 3, 3, dimnames = list(rownames, colnames))
+
+elasticities_feat[1,1] <- coef(trop_feat)["log(P_Trop)"] 
+elasticities_feat[1,2] <- coef(trop_feat)["log(P_MM)"] 
+elasticities_feat[1,3] <- coef(trop_feat)["log(P_Dom)"] 
+elasticities_feat[2,1] <- coef(mm_feat)["log(P_Trop)"] 
+elasticities_feat[2,2] <- coef(mm_feat)["log(P_MM)"] 
+elasticities_feat[2,3] <- coef(mm_feat)["log(P_Dom)"] 
+elasticities_feat[3,1] <- coef(dom_feat)["log(P_Trop)"] 
+elasticities_feat[3,2] <- coef(dom_feat)["log(P_MM)"] 
+elasticities_feat[3,3] <- coef(dom_feat)["log(P_Dom)"] 
+
+elasticities_feat
+```
+_i. The estimates became smaller across all coefficients._
+
+_ii. Dominick's suffer the most when Minute Maid is featured and lowers its price._
+
+### 4.c
+Minute Maid and Dominick's are the most competitive with each other.
+
+_i. We can tell from the magnitude of cross-price elasticity that the sales of Minute Maid and Dominick's are being the most impacted by each other's price._
+
+_ii. The correlation of prices for those two products would be more correlated because of how much their prices impact each other._
+
+### 4.d
+```{r} 
+oj_prices_lagged <-oj_lagged[,1:7]
+oj_wide_lagged <- dcast(oj_prices_lagged, store + week ~ brand)
+colnames(oj_wide_lagged)[3] <- "P_Dom"
+colnames(oj_wide_lagged)[4] <- "P_MM"
+colnames(oj_wide_lagged)[5] <- "P_Trop"
+oj_cross_lagged <- merge(oj_lagged, oj_wide_lagged, by=c("week","store"))
+trop_comp <- glm(logmove ~ log(price) + log(P_Dom) + log(P_MM) + log(P_Trop) +
+                   log(P_Dom)*feat + log(P_MM)*feat + log(P_Trop)*feat +
+                   lagged_price + P_Dom + P_MM + P_Trop,
+                 data = oj_cross_lagged %>% filter(brand == "tropicana"))
+mm_comp <- glm(logmove ~ log(price) + log(P_Dom) + log(P_MM) + log(P_Trop) + 
+                 log(P_Dom)*feat + log(P_MM)*feat + log(P_Trop)*feat +
+                 lagged_price + P_Dom + P_MM + P_Trop,
+          data = oj_cross_lagged %>% filter(brand == "minute.maid"))
+dom_comp <- glm(logmove ~ log(price) + log(P_Dom) + log(P_MM) + log(P_Trop) + 
+                  log(P_Dom)*feat + log(P_MM)*feat + log(P_Trop)*feat +
+                  lagged_price + P_Dom + P_MM + P_Trop,
+           data = oj_cross_lagged %>% filter(brand == "dominicks"))
+
+elasticities_comp <- matrix(NA, 3, 3, dimnames = list(rownames, colnames))
+
+elasticities_comp[1,1] <- coef(trop_comp)["log(P_Trop)"] 
+elasticities_comp[1,2] <- coef(trop_comp)["log(P_MM)"] 
+elasticities_comp[1,3] <- coef(trop_comp)["log(P_Dom)"] 
+elasticities_comp[2,1] <- coef(mm_comp)["log(P_Trop)"] 
+elasticities_comp[2,2] <- coef(mm_comp)["log(P_MM)"] 
+elasticities_comp[2,3] <- coef(mm_comp)["log(P_Dom)"] 
+elasticities_comp[3,1] <- coef(dom_comp)["log(P_Trop)"] 
+elasticities_comp[3,2] <- coef(dom_comp)["log(P_MM)"] 
+elasticities_comp[3,3] <- coef(dom_comp)["log(P_Dom)"] 
+
+elasticities_comp
+```

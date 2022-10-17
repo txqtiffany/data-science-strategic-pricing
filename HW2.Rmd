@@ -1,0 +1,49 @@
+---
+title: "ECON 487 HW2"
+author: "Tiffany Tian"
+date: "10/9/2021"
+output: html_document
+---
+
+```{r}
+oj <- read.csv("oj.csv")
+
+# Visualizing price
+library(ggplot2)
+ggplot(oj, aes(price)) + geom_boxplot()
+ggplot(oj, aes(log(price))) + geom_boxplot()
+ggplot(oj, aes(factor(brand), price)) + geom_boxplot(aes(fill = factor(brand)))
+ggplot(oj, aes(factor(brand), log(price))) + geom_boxplot(aes(fill = factor(brand)))
+
+# Visualizing the quantity/price relationship
+ggplot(oj, aes(x = logmove, y = log(price))) + geom_point(aes(color = factor(brand)))
+
+# Estimating the relationship
+summary(lm(logmove ~ log(price), data = oj))
+summary(lm(logmove ~ log(price) + brand, data = oj))
+
+# Add dummy variables
+library(tidyverse)
+oj %<>%
+  mutate(tropicana = ifelse(brand == "tropicana", 1, 0)) %>%
+  mutate(minute.maid = ifelse(brand == "minute.maid", 1, 0)) %>%
+  mutate(dominicks = ifelse(brand == "dominicks", 1, 0))
+
+summary(glm(logmove ~ log(price):tropicana +
+             log(price):minute.maid +
+             log(price):dominicks, data = oj))
+
+# Impact of featuring
+ggplot(oj, aes(feat, brand)) + geom_point(position = "jitter", aes(color = factor(brand)))
+
+library(plyr)
+library(dplyr)
+aggregate(oj[, 5:6], list(oj$brand), mean)
+ddply(oj, .(brand), summarize, feat = mean(feat), price = mean(price))
+
+summary(glm(logmove ~ log(price) + feat, data=oj))
+summary(glm(logmove ~ log(price)*feat, data=oj))
+summary(glm(logmove ~ log(price):brand*feat, data=oj))
+summary(glm(logmove ~ log(price):brand*feat + INCOME + HHLARGE + AGE60, data=oj))
+
+```

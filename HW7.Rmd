@@ -1,0 +1,56 @@
+---
+title: "ECON 487 HW7"
+author: "Tiffany Tian"
+date: "11/15/2021"
+output: html_document
+---
+
+```{r setup, message=FALSE}
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(glmnet)
+library(ggplot2)
+library(randomForest)
+
+mydata <- read.csv("oj.csv")
+```
+
+## 4.a
+```{r}
+mydata$price <- log(mydata$price) 
+oj.rf <- randomForest(logmove ~ ., data = mydata, ntree = 100,
+                      keep.forest = TRUE)
+mydata$pred_logmove_rf = predict(oj.rf) 
+mydata$resid2 <- 	(mydata$logmove - mydata$pred_logmove_rf)^2
+```
+
+## 4.b
+```{r}
+ggplot(mydata, aes(pred_logmove_rf, logmove)) +
+  geom_point(aes(color = factor(brand))) +
+  geom_smooth(method = "lm")
+```
+
+## 4.c
+```{r}
+x <- model.matrix(~ price + feat + brand + AGE60 + EDUC + ETHNIC + INCOME +
+                    HHLARGE + WORKWOM + HVAL150 + HVAL150 + SSTRDIST +
+                    SSTRVOL + CPWVOL5,
+              data = mydata)
+y <- as.numeric(as.matrix(mydata$logmove))
+lasso_v1 <- glmnet(x, y, alpha=1)
+cvfit <- cv.glmnet(x, y, alpha=1)
+coef(cvfit, s = "lambda.min")
+```
+Since the LASSO model didn't kick out any parameter, I will select all the parameters.
+
+```{r}
+reg = lm(logmove ~ ., data = mydata)
+summary(reg)
+mydata$pred_logmove_reg = predict(reg)
+mydata$resid2_reg <- (mydata$logmove - mydata$pred_logmove_reg) ^ 2
+mean(mydata$resid2)
+mean(mydata$resid2_reg)
+```
+The LASSO Model gives out a lower MSE.

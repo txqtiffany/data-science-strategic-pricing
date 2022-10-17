@@ -1,0 +1,118 @@
+---
+title: "ECON 487 HW3"
+author: "Tiffany Tian"
+date: "10/18/2021"
+output: html_document
+---
+
+```{r setup, echo=FALSE, message=FALSE}
+library(ggplot2)
+library(plyr)
+library(dplyr)
+
+oj <- read.csv("oj.csv")
+```
+
+### 1.a
+```{r}
+model_demo <- glm(logmove ~ log(price)*brand*feat + AGE60 + EDUC + ETHNIC + INCOME + HHLARGE + WORKWOM + HVAL150, data=oj)
+
+summary(model_demo)
+```
+
+### 1.b
+All demographics of the stores here are significant, including Age, Education, Ethnic, Income, Household size, Working Women, and Household income.
+
+### 1.c & 1.d
+```{r}
+training <- oj[sample(nrow(oj), 0.8 * nrow(oj)), ]
+testing <- anti_join(oj, training)
+logmove_hat_demo <- predict(model_demo, newdata = testing)
+cor(logmove_hat_demo, testing$logmove)^2 # The fair R-squared is 0.55
+mean((logmove_hat_demo - testing$logmove)^2) # MSE is 0.45
+
+# In comparison with model without demographics
+model <- glm(logmove ~ log(price)*brand*feat, data=oj)
+logmove_hat <- predict(model, newdata = testing)
+cor(logmove_hat, testing$logmove)^2 # The fair R-squared is 0.52
+mean((logmove_hat - testing$logmove)^2) # MSE is 0.49
+```
+
+Both the fair R-squared and MSE indicates that the model with demographics has a better fit of the data.
+
+### 2.a
+
+```{r}
+summary(oj$HHLARGE)
+```
+
+### 2.b
+```{r} 
+exp(coef(model_demo)["HHLARGE"] * (summary(oj$HHLARGE)["3rd Qu."] - summary(oj$HHLARGE)["Median"])) / length(unique(oj$week))
+```
+i.	If we move from the median value of HHLARGE to the 75th percentile (3rd quartile), the log(quantity) would increase by 0.0080 each week on average.
+
+```{r} 
+exp(coef(model_demo)["EDUC"] * (summary(oj$HHLARGE)["3rd Qu."] - summary(oj$HHLARGE)["Median"])) / length(unique(oj$week))
+```
+ii.	If we move from the median value of EDUC to the 75th percentile (3rd quantile), the log(quantity) would increase by 0.0084 each week on average.
+
+iii. Based on this analysis, education is a more important predictor of demand because it would have the greater influence on quantity sold.
+
+### 2.c
+```{r}
+model_price = lm(logmove ~ log(price)*brand*feat + log(price)*HHLARGE + log(price)*EDUC + AGE60 + EDUC + ETHNIC + HHLARGE + WORKWOM + HVAL150, data=training)
+summary(model_price)
+```
+i. The coefficient for HHLARGE is -5.15, and that for EDUC is 3.55.
+
+ii. The signs make sense to me because the larger the household, the more price-sensitive people would be since they would be buying in large quantity. And for education, those who have a college degree are more likely to have greater income and thus would be less price sensitive.
+
+iii. The coefficient estimates of HHLARGE is now 2.63 and of EDUC is -2.60.
+Compared to 1b, they used to be -1.19 for HHLARGE and 0.47 for EDUC. 
+
+```{r}
+exp(coef(model_price)["log(price):HHLARGE"] * (summary(oj$HHLARGE)["3rd Qu."] - summary(oj$HHLARGE)["Median"]))
+exp(coef(model_price)["log(price):EDUC"] * (summary(oj$EDUC)["3rd Qu."] - summary(oj$EDUC)["Median"]))
+```
+iv. Elasticity of HHLARGE changed by 0.88 in total, while that of EDUC changed by 1.22. This means that education is more important to price sensitivity.
+
+### 2.d
+This means that without the factors of price-sensitivity, a large household would buy more quantity of orange juices and an educated person would buy less, which would make sense. 
+
+If we imagine this as HHLARGE as a demand curve with logmove on the y-axis and log(price) on the x-axis, then the coefficient on HHLARGE is now the intercept and the coefficient of log(price): HHLARGE is the slope. In this case, it’s a downward sloping curve with a positive intercept, whereas before when we didn’t include the interaction terms, it’s just a vertical shifter and we can think of it as the mean of this downward sloping curve. That’s why the coefficient for HHLARGE beforehand is negative.
+
+
+### 3.a
+```{r}
+df1 <- oj[c("store", "brand", "week", "price")]
+df1$week <- df1$week + 1
+df2 <- merge(oj, df1, by = c("brand", "store", "week"))
+df2 %<>%
+  rename("price" = "price.x", "lagged_price" = "price.y") %>%
+  relocate(lagged_price, .after = price)
+```
+
+### 3.b
+```{r}
+model_lag <- glm(logmove ~ log(price)*brand*feat + log(lagged_price)*brand, data = df2)
+summary(model_lag)
+```
+### 3.c
+From the coefficients, we can see that decreases in lagged prices leads to decrease in this week's quantity sold, which make sales less attractive. Moreover, this phenomenon is shown mostly for Dominick's, less for Minute Maid and the least with Tropicana, which is consistent with our findings about the elasticity for these brands so far.
+
+### Bonus
+```{r}
+library(reshape2)
+
+oj_prices <- oj %>%
+  select(store, brand, week, price)
+df3 <- dcast(oj_prices, store + week ~ brand)
+df4 <- merge(oj, df3, by=c("week","store")) %>%
+  filter(brand == "tropicana")
+
+model_tropicana = glm(logmove ~ log(dominicks) + log(minute.maid) + log(tropicana), data=df4)
+summary(model_tropicana)
+```
+From the coefficients, we can see that Minute Maid has twice the cross price elasticity as Dominick's, which makes sense because orange juice in one brand is substitute of other brands.
+

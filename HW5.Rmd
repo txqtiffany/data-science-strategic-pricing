@@ -1,0 +1,73 @@
+---
+title: "ECON 487 HW5"
+author: "Tiffany Tian"
+date: "11/2/2021"
+output: html_document
+---
+
+```{r setup, message=FALSE}
+library(ggplot2)
+library(plyr)
+library(dplyr)
+library(reshape2)
+
+oj <- read.csv("oj.csv")
+oj_prices <-oj[,1:6]
+oj_wide <- dcast(oj_prices, store + week ~ brand)
+colnames(oj_wide)[3] <- "P_Dom"
+colnames(oj_wide)[4] <- "P_MM"
+colnames(oj_wide)[5] <- "P_Trop"
+oj_cross <- merge(oj, oj_wide, by=c("week","store"))
+dom <- oj_cross %>%
+  filter(brand == 'dominicks')
+```
+
+## 2.a
+```{r}
+quantile(dom$INCOME)
+```
+
+## 2.b
+```{r}
+dom$quartile <- findInterval(dom$INCOME, quantile(dom$INCOME), rightmost.closed=TRUE)
+tapply(dom$logmove, dom$quartile, mean)
+```
+
+## 2.c
+```{r, message=FALSE}
+MSE_list <- c()
+for (i in 1:4) {
+  folds <- 5
+  data <- dom %>% filter(quartile == i)
+  # Randomized the entire data set
+  data <- data[sample(nrow(data)),]
+  # Split the data set into 5 groups
+  data$order <- seq(1, nrow(data))
+  data$group <- data$order %% folds + 1
+  
+  MSE <- c()
+  for (j in 1:folds) {
+    # Select testing set
+    data_test <- data[which(data$group == j),]
+    # The rest is used as training set
+    data_train <- anti_join(data, data_test)
+    model <- glm(logmove ~ log(P_Dom) + log(P_MM) + log(P_Trop) * feat + AGE60 +
+                 EDUC + ETHNIC + INCOME + HHLARGE + WORKWOM + HVAL150 +
+                 SSTRDIST + SSTRVOL + CPDIST5 + CPWVOL5,
+                data = data_train)
+    data_test$logmove_hat <- predict(model, newdata=data_test)
+    MSE[j] <- mean((data_test$logmove_hat - data_test$logmove)^2)
+  }
+  MSE_list[i] = mean(MSE)
+}
+MSE_list
+```
+
+## 2.d
+
+The third quartile has the lowest MSE, this means that the distribution of sales within this quartile (middle-income) is easily explained through this model.
+
+## 2.e
+
+The first quartile has the highest MSE, this means that the distribution of sales within this quartile (low-income) is the hardest to be explained by this model.
+

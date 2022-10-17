@@ -1,0 +1,158 @@
+---
+title: "ECON 487 HW6"
+author: "Tiffany Tian"
+date: "11/8/2021"
+output: html_document
+---
+
+```{r setup, message=FALSE}
+library(rpart)
+library(rpart.plot)
+library(partykit)
+library(maptree)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(glmnet)
+library(reshape2)
+
+oj <- read.csv("oj.csv")
+```
+
+## 1.a
+```{r}
+oj$Q <- exp(oj$logmove)
+```
+
+## 1.b
+```{r}
+df1 <- ddply(oj, c('store','week'), function(x) c(weighted_mean = weighted.mean(x$price, x$Q)))
+oj = merge(df1, oj, by = c("store", "week"))
+```
+
+## 2.a-d
+```{r}
+oj_dom <- oj %>%
+  filter(brand == "dominicks")
+
+# Create a data frame from the existing one (with weighted mean merged back in)
+# which will then be passed into rpart (tree partitioning algorithm). 
+dataToPass <- oj[, c("weighted_mean","AGE60","EDUC","ETHNIC","INCOME","HHLARGE",
+                     "WORKWOM","HVAL150","SSTRDIST","SSTRVOL","CPDIST5","CPWVOL5")]
+
+# Fit the tree
+fit <- rpart(as.formula(weighted_mean ~ .), data = dataToPass,
+             method = "anova", cp = 0.007)
+
+# Draw the tree
+draw.tree(fit)
+# Assign Leaves to observations
+dataToPass$leaf = fit$where
+oj_leaf <- merge(oj, dataToPass) %>% unique()
+```
+
+## 3.a
+```{r}
+oj_prices <-oj[,1:6]
+oj_wide <- dcast(oj_prices, store + week ~ brand)
+colnames(oj_wide)[3] <- "P_Dom"
+colnames(oj_wide)[4] <- "P_MM"
+colnames(oj_wide)[5] <- "P_Trop"
+oj_cross_leaf <- merge(oj_leaf, oj_wide, by=c("week","store"))
+
+reg_trop <- lm(logmove~log(price)*as.factor(leaf)*feat,
+          data = oj_cross_leaf %>% filter(brand == "tropicana"))
+summary(reg_trop)
+```
+
+## 3.b
+```{r}
+#leaf specific regressions
+temp <- oj_cross_leaf %>%
+  select(c("price", "brand", "store", "week", 
+           "logmove","leaf", "feat")) %>%
+  reshape(timevar = "brand",
+          idvar = c("store", "week", "leaf"),
+          direction = "wide")
+
+# Create matrices
+elasticity_2 <- elasticity_4 <- elasticity_5 <- data.frame(matrix(NA, 3, 3)) %>%
+  `colnames<-`(c("Dom","MM","Trop")) %>%
+  `rownames<-`(c("Dom","MM","Trop"))
+leaves = c(2, 4, 5)
+# Create list to store elasticities
+dom = list()
+mm = list()
+trop = list()
+
+for (i in 1:3){
+  temp_df <- temp %>% filter(leaf == leaves[i])
+  reg_dom = lm(logmove.dominicks ~ log(price.dominicks)*feat.dominicks +
+              log(price.minute.maid)*feat.minute.maid +
+              log(price.tropicana)*feat.tropicana, data = temp_df)
+  reg_mm = lm(logmove.minute.maid ~ log(price.dominicks)*feat.dominicks +
+              log(price.minute.maid)*feat.minute.maid +
+              log(price.tropicana)*feat.tropicana, data = temp_df)
+  reg_trop = lm(logmove.tropicana ~ log(price.dominicks)*feat.dominicks +
+              log(price.minute.maid)*feat.minute.maid +
+              log(price.tropicana)*feat.tropicana, data = temp_df)
+  
+  dom[[i]] = c(coef(reg_dom)[2], coef(reg_dom)[4], coef(reg_dom)[6])
+  mm[[i]] = c(coef(reg_mm)[2], coef(reg_mm)[4], coef(reg_mm)[6])
+  trop[[i]] = c(coef(reg_trop)[2], coef(reg_trop)[4], coef(reg_trop)[6])
+}
+
+elasticity_2$Dom = dom[[1]]
+elasticity_4$Dom = dom[[2]]
+elasticity_5$Dom = dom[[3]]
+
+elasticity_2$MM = mm[[1]]
+elasticity_4$MM = mm[[2]]
+elasticity_5$MM = mm[[3]]
+
+elasticity_2$Trop = trop[[1]]
+elasticity_4$Trop = trop[[2]]
+elasticity_5$Trop = trop[[3]]
+
+elasticity_2
+elasticity_4
+elasticity_5
+```
+
+## 3.c
+Between the three leaves, leaf 2 has the lowest own price elasticity across all brands, and leaf 5 has the lowest cross price elasticity across all brands.
+
+## 4.a
+
+Leaf 5 has the highest own-price elasticity, therefore its markup should be the lowest comparing to the other leaves.
+
+## 4.b
+
+The highest own-price elasticity leaf also has the lowest cross-price elasticity, and vice versa. 
+
+i.	What does this imply about differences in markups within high versus low elasticity stores across brands?
+
+This means that stores in high own-price elasticity has low markups because their customers are overall more sensitive to the price of their own brand. 
+
+ii.	Can you say anything about what this means for the timing of sales?  Should they occur at the same or different times across stores?
+
+This means that for the timing of sales should occur at the same time across stores, especially for stores with high own-price elasticity.
+
+## 5
+
+Since s_2/p_2 > s_1/p_1
+
+then (θs_2)/p_2 > (θs_1)/p_1
+
+(θs_2)/p_2 - 1 > (θs_1)/p_1 - 1
+
+p_1(θs2/p2 - 1) > p_1(θs1/p1 - 1)
+
+Since p_2 > p_1,
+
+p_2((θs_2)/p_2 - 1) > p_1 ((θs_1)/p_1 - 1) 
+
+(θs_2-p_2) > (θs_1 - p_1)
+
+(θs_2-p_2) - (θs_1 - p_1) > 0
+
